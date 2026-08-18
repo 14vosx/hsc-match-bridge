@@ -34,6 +34,16 @@ Slice G1 establishes the reliable protocol foundation:
 
 ---
 
+## Slice G2-A Scope: MatchZy Config Renderer
+
+Slice G2-A provides pure, deterministic Match Spec v1 → MatchZy JSON translation:
+- Pure translation from `MatchSpecV1` to MatchZy-compatible configuration dictionary and deterministic JSON.
+- Maps `runtimeMatchId` to `matchid`, `teams.team_a` to `team1`, `teams.team_b` to `team2`, and `map.key` to single `maplist` entry.
+- Standardizes 5v5 BO1 format with knife round (`map_sides: ["knife"]`), `skip_veto: true`, and `min_players_to_ready: 5`.
+- **G2-A Boundary**: Pure renderer only. Does *not* write MatchZy files, execute RCON commands, or prepare a live server.
+
+---
+
 ## Reliability & Execution Uncertainty Principle
 
 ### Exactly-Once Limitation
