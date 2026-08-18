@@ -16,6 +16,11 @@ from hsc_match_bridge.matchzy import (
     render_matchzy_config,
     serialize_matchzy_config,
 )
+from hsc_match_bridge.matchzy_actuator import (
+    MatchZyActuationError,
+    load_matchzy_match,
+    materialize_matchzy_config,
+)
 from hsc_match_bridge.models import (
     CommandConflictError,
     CommandIdentity,
@@ -43,12 +48,16 @@ __all__ = [
     "InvalidStateTransitionError",
     "JournalEntry",
     "JournalError",
+    "MatchZyActuationError",
     "SchemaVersionError",
     "ServerResourceConfig",
     "load_config",
+    "load_matchzy_match",
     "main",
+    "materialize_matchzy_config",
     "parse_server_registry",
     "render_matchzy_config",
     "serialize_matchzy_config",
 ]
+
 

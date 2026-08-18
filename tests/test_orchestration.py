@@ -66,7 +66,14 @@ class TestOrchestrationContracts(unittest.TestCase):
                 auth_api_base_url="https://auth.example.com",
                 bridge_credential="secret_token",
                 state_db_path=db_path,
-                servers=(ServerResourceConfig(server_key="srv-east-1"),),
+                rcon_executable=Path("/usr/local/bin/rcon"),
+                servers=(
+                    ServerResourceConfig(
+                        server_key="srv-east-1",
+                        csgo_root=Path("/opt/cs2/game/csgo"),
+                        rcon_config_path=Path("/etc/rcon/srv-east-1.yaml"),
+                    ),
+                ),
             )
 
             client = Mock(spec=MatchBridgeClient)
@@ -86,7 +93,14 @@ class TestOrchestrationContracts(unittest.TestCase):
                 auth_api_base_url="https://auth.example.com",
                 bridge_credential="secret_token",
                 state_db_path=db_path,
-                servers=(ServerResourceConfig(server_key="srv-local-1"),),
+                rcon_executable=Path("/usr/local/bin/rcon"),
+                servers=(
+                    ServerResourceConfig(
+                        server_key="srv-local-1",
+                        csgo_root=Path("/opt/cs2/game/csgo"),
+                        rcon_config_path=Path("/etc/rcon/srv-local-1.yaml"),
+                    ),
+                ),
             )
 
             # Claim returns a command for unmanaged "srv-other-99"
@@ -109,7 +123,14 @@ class TestOrchestrationContracts(unittest.TestCase):
                 auth_api_base_url="https://auth.example.com",
                 bridge_credential="secret_token",
                 state_db_path=db_path,
-                servers=(ServerResourceConfig(server_key="srv-east-1"),),
+                rcon_executable=Path("/usr/local/bin/rcon"),
+                servers=(
+                    ServerResourceConfig(
+                        server_key="srv-east-1",
+                        csgo_root=Path("/opt/cs2/game/csgo"),
+                        rcon_config_path=Path("/etc/rcon/srv-east-1.yaml"),
+                    ),
+                ),
             )
 
             client = Mock(spec=MatchBridgeClient)
@@ -131,3 +152,4 @@ class TestOrchestrationContracts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

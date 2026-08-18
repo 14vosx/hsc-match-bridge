@@ -19,6 +19,8 @@ class ServerResourceConfig:
     """Validated server resource managed by the bridge node."""
 
     server_key: str
+    csgo_root: Path
+    rcon_config_path: Path
 
 
 @dataclass(frozen=True)
@@ -29,6 +31,7 @@ class BridgeConfig:
     auth_api_base_url: str
     bridge_credential: str
     state_db_path: Path
+    rcon_executable: Path
     servers: tuple[ServerResourceConfig, ...]
 
     @property
@@ -41,8 +44,10 @@ class BridgeConfig:
             f"auth_api_base_url={self.auth_api_base_url!r}, "
             f"bridge_credential='***', "
             f"state_db_path={self.state_db_path!r}, "
+            f"rcon_executable={self.rcon_executable!r}, "
             f"servers={self.servers!r})"
         )
+
 
 
 def parse_server_registry(file_path: Path) -> tuple[ServerResourceConfig, ...]:
@@ -76,9 +81,9 @@ def parse_server_registry(file_path: Path) -> tuple[ServerResourceConfig, ...]:
         raise ConfigurationError("Server registry missing required field: 'schemaVersion'.")
 
     schema_version = data["schemaVersion"]
-    if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version != 1:
+    if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version != 2:
         raise ConfigurationError(
-            f"Unsupported server registry schemaVersion: {schema_version}. Expected integer 1."
+            f"Unsupported server registry schemaVersion: {schema_version}. Expected integer 2."
         )
 
     # Validate servers list
@@ -95,7 +100,7 @@ def parse_server_registry(file_path: Path) -> tuple[ServerResourceConfig, ...]:
     seen_keys: set[str] = set()
     validated_servers: list[ServerResourceConfig] = []
 
-    allowed_server_keys = {"serverKey"}
+    allowed_server_keys = {"serverKey", "csgoRoot", "rconConfigPath"}
 
     for idx, entry in enumerate(servers_data):
         if not isinstance(entry, dict):
@@ -107,6 +112,7 @@ def parse_server_registry(file_path: Path) -> tuple[ServerResourceConfig, ...]:
                 f"Unknown fields in server entry at index {idx}: {sorted(unknown_entry_keys)}"
             )
 
+        # serverKey
         if "serverKey" not in entry:
             raise ConfigurationError(f"Server entry at index {idx} missing required field 'serverKey'.")
 
@@ -128,10 +134,53 @@ def parse_server_registry(file_path: Path) -> tuple[ServerResourceConfig, ...]:
                 f"Duplicate serverKey found in registry after normalization: '{server_key}'"
             )
 
+        # csgoRoot
+        if "csgoRoot" not in entry:
+            raise ConfigurationError(f"Server entry at index {idx} missing required field 'csgoRoot'.")
+
+        raw_csgo_root = entry["csgoRoot"]
+        if not isinstance(raw_csgo_root, str):
+            raise ConfigurationError(f"Field 'csgoRoot' at index {idx} must be a string.")
+
+        csgo_root_str = raw_csgo_root.strip()
+        if not csgo_root_str:
+            raise ConfigurationError(f"Field 'csgoRoot' at index {idx} cannot be empty.")
+
+        csgo_root_path = Path(csgo_root_str)
+        if not csgo_root_path.is_absolute():
+            raise ConfigurationError(
+                f"Field 'csgoRoot' at index {idx} must be an absolute path, got: '{csgo_root_str}'"
+            )
+
+        # rconConfigPath
+        if "rconConfigPath" not in entry:
+            raise ConfigurationError(f"Server entry at index {idx} missing required field 'rconConfigPath'.")
+
+        raw_rcon_config = entry["rconConfigPath"]
+        if not isinstance(raw_rcon_config, str):
+            raise ConfigurationError(f"Field 'rconConfigPath' at index {idx} must be a string.")
+
+        rcon_config_str = raw_rcon_config.strip()
+        if not rcon_config_str:
+            raise ConfigurationError(f"Field 'rconConfigPath' at index {idx} cannot be empty.")
+
+        rcon_config_path = Path(rcon_config_str)
+        if not rcon_config_path.is_absolute():
+            raise ConfigurationError(
+                f"Field 'rconConfigPath' at index {idx} must be an absolute path, got: '{rcon_config_str}'"
+            )
+
         seen_keys.add(server_key)
-        validated_servers.append(ServerResourceConfig(server_key=server_key))
+        validated_servers.append(
+            ServerResourceConfig(
+                server_key=server_key,
+                csgo_root=csgo_root_path,
+                rcon_config_path=rcon_config_path,
+            )
+        )
 
     return tuple(validated_servers)
+
 
 
 def validate_auth_api_base_url(raw_url: str) -> str:
@@ -234,6 +283,24 @@ def load_config(env: Mapping[str, str] | None = None) -> BridgeConfig:
 
     servers_file_path = Path(servers_file_str)
 
+    # HSC_RCON_EXECUTABLE
+    if "HSC_RCON_EXECUTABLE" not in env:
+        raise ConfigurationError("HSC_RCON_EXECUTABLE environment variable is required.")
+
+    raw_rcon_executable = env["HSC_RCON_EXECUTABLE"]
+    if not isinstance(raw_rcon_executable, str):
+        raise ConfigurationError("HSC_RCON_EXECUTABLE must be a string.")
+
+    rcon_executable_str = raw_rcon_executable.strip()
+    if not rcon_executable_str:
+        raise ConfigurationError("HSC_RCON_EXECUTABLE cannot be empty.")
+
+    rcon_executable_path = Path(rcon_executable_str)
+    if not rcon_executable_path.is_absolute():
+        raise ConfigurationError(
+            f"HSC_RCON_EXECUTABLE must be an absolute path, got: '{rcon_executable_str}'"
+        )
+
     servers = parse_server_registry(servers_file_path)
 
     return BridgeConfig(
@@ -241,5 +308,7 @@ def load_config(env: Mapping[str, str] | None = None) -> BridgeConfig:
         auth_api_base_url=auth_api_base_url,
         bridge_credential=bridge_credential,
         state_db_path=state_db_path,
+        rcon_executable=rcon_executable_path,
         servers=servers,
     )
+
