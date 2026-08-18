@@ -17,20 +17,20 @@ The **HSC Match Bridge** is a standalone bounded context and runtime acting as a
 - **No direct MariaDB access**: The Match Bridge does not connect to the Central database.
 - **No RabbitMQ**: The Match Bridge does not participate in AMQP message broker topologies.
 - **No Match Edge dependency**: The Match Bridge is fully independent of Match Edge services.
-- **Outbound HTTPS only**: All future Central integration will occur via outbound HTTPS initiated by the Bridge.
+- **Outbound HTTPS only**: All Central communication occurs via outbound HTTPS initiated by the Bridge to Central Auth API.
 - **No public inbound API**: The Bridge does not expose public HTTP listener endpoints.
 
 ---
 
-## Slice G0 Scope & Invariants
+## Slice G1 Scope: Central Bridge Protocol
 
-Slice G0 establishes the minimal, production-grade foundation:
-- Python project structure (Python >= 3.11, standard library only, zero third-party runtime dependencies).
-- Immutable configuration loader and validator.
-- Local server registry with strict `schemaVersion: 1` validation.
-- Durable local SQLite command journal with WAL mode and `PRAGMA synchronous = FULL`.
-- Domain command identity and journal models (`PREPARE_MATCH`, `runtime_match_id >= 1_000_000`, states: `RECEIVED`, `APPLYING`, `SUCCEEDED`, `FAILED`).
-- CLI check boundary (`hsc-match-bridge check`).
+Slice G1 establishes the reliable protocol foundation:
+- Outbound HTTPS communication using Python's standard library (`urllib.request`) with finite timeout (`HTTP_TIMEOUT_SECONDS = 5`) and default TLS verification.
+- Dedicated Bridge credential authentication via `x-hsc-bridge-key` header (the Bridge does not send `bridgeNodeKey` as an authority selector; Central derives it from credential digest).
+- Strict protocol models for Central Match Spec v1 (authoritative 5v5 rosters, unique SteamID64s, frozen map snapshot).
+- Local server registry ownership validation before journal observation.
+- Intake orchestration (`intake_one_cycle`): claims command, validates protocol and local server ownership, and durably records state in SQLite journal as `RECEIVED`.
+- **G1 Boundary**: Does *not* execute local preparation, invoke MatchZy, create server side-effects, or mark state `APPLYING`.
 
 ---
 
@@ -39,7 +39,7 @@ Slice G0 establishes the minimal, production-grade foundation:
 ### Exactly-Once Limitation
 SQLite alone **cannot provide magical exactly-once local actuation**.
 
-There is an unavoidable crash window between executing a local side effect (e.g. configuring CS2/MatchZy) and recording the outcome durably in SQLite. Therefore, execution uncertainty is modeled explicitly:
+There is an unavoidable crash window between executing a local side effect (e.g. configuring CS2/MatchZy in G2) and recording the outcome durably in SQLite. Therefore, execution uncertainty is modeled explicitly:
 
 1. `RECEIVED`: Command is durably observed; no local execution has started.
 2. `APPLYING`: Execution was durably marked as started *prior* to executing local side effects.
@@ -66,10 +66,12 @@ Future G2 reconciliation/adapter logic will decide how an uncertain execution is
 | Variable | Required | Description |
 |---|---|---|
 | `HSC_BRIDGE_NODE_KEY` | Yes | Unique identifier for this bridge node instance (string, trimmed, max 64 chars). |
+| `HSC_AUTH_API_BASE_URL` | Yes | Absolute HTTPS base URL of Central Auth API (e.g. `https://auth.example.com`). |
+| `HSC_BRIDGE_CREDENTIAL` | Yes | Dedicated internal bridge credential secret (sent in `x-hsc-bridge-key`). |
 | `HSC_BRIDGE_STATE_DB` | Yes | Filesystem path to the local SQLite database file (e.g. `state/journal.db`). |
 | `HSC_BRIDGE_SERVERS_FILE` | Yes | Filesystem path to the local server registry JSON file. |
 
-*(Note: Auth API credentials and URLs belong to future Slice G1; adapter/RCON/AMP configurations belong to future Slice G2.)*
+*(Note: MatchZy/RCON/AMP configurations belong to future Slice G2.)*
 
 ### Local Server Registry Schema (`schemaVersion: 1`)
 
@@ -98,11 +100,13 @@ The server registry defines the local server resources managed by this bridge no
 
 ## Local Validation (CLI Check)
 
-To validate local configuration, server registry, and SQLite journal initialization:
+To validate local configuration, server registry, and SQLite journal initialization (without making network requests):
 
 ```bash
 # Set environment variables (example paths)
 export HSC_BRIDGE_NODE_KEY="node-local-dev-01"
+export HSC_AUTH_API_BASE_URL="https://auth.example.com"
+export HSC_BRIDGE_CREDENTIAL="placeholder-secret-credential"
 export HSC_BRIDGE_STATE_DB="./state/journal.db"
 export HSC_BRIDGE_SERVERS_FILE="./config/servers.json"
 

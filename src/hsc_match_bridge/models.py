@@ -83,12 +83,12 @@ class CommandIdentity:
                 object.__setattr__(self, "command_type", CommandType(self.command_type))
             except ValueError:
                 raise CommandValidationError(
-                    f"Invalid command_type: {self.command_type}. Only PREPARE_MATCH is supported in G0."
+                    f"Invalid command_type: {self.command_type}. Only PREPARE_MATCH is supported."
                 )
 
         if self.command_type != CommandType.PREPARE_MATCH:
             raise CommandValidationError(
-                f"Invalid command_type: {self.command_type}. Only PREPARE_MATCH is supported in G0."
+                f"Invalid command_type: {self.command_type}. Only PREPARE_MATCH is supported."
             )
 
 

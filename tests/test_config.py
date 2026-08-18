@@ -12,7 +12,7 @@ class TestConfigContracts(unittest.TestCase):
     """Observable contracts for environment configuration and server registry."""
 
     def test_valid_configuration_loads_and_normalizes_keys(self) -> None:
-        """A valid configuration loads trimmed, normalized bridgeNodeKey and serverKey resources."""
+        """A valid configuration loads trimmed, normalized keys and masks credential in repr."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_file = Path(tmp_dir) / "servers.json"
             registry_file.write_text(
@@ -29,6 +29,8 @@ class TestConfigContracts(unittest.TestCase):
 
             env = {
                 "HSC_BRIDGE_NODE_KEY": "  node-01  ",
+                "HSC_AUTH_API_BASE_URL": "https://auth.example.com/api/",
+                "HSC_BRIDGE_CREDENTIAL": "secret_bridge_token_123",
                 "HSC_BRIDGE_STATE_DB": str(state_db),
                 "HSC_BRIDGE_SERVERS_FILE": str(registry_file),
             }
@@ -36,8 +38,13 @@ class TestConfigContracts(unittest.TestCase):
             config = load_config(env)
 
             self.assertEqual(config.bridge_node_key, "node-01")
+            self.assertEqual(config.auth_api_base_url, "https://auth.example.com/api")
+            self.assertEqual(config.bridge_credential, "secret_bridge_token_123")
             self.assertEqual(config.state_db_path, state_db)
             self.assertEqual(config.server_keys, ("server-alpha", "server-bravo"))
+            # Ensure credential is never exposed in repr
+            self.assertNotIn("secret_bridge_token_123", repr(config))
+            self.assertIn("***", repr(config))
 
     def test_invalid_bridge_node_key_fails(self) -> None:
         """Missing, blank, or excessively long bridgeNodeKey raises ConfigurationError."""
@@ -51,6 +58,8 @@ class TestConfigContracts(unittest.TestCase):
                 encoding="utf-8",
             )
             base_env = {
+                "HSC_AUTH_API_BASE_URL": "https://auth.example.com",
+                "HSC_BRIDGE_CREDENTIAL": "secret_key",
                 "HSC_BRIDGE_STATE_DB": str(Path(tmp_dir) / "state.db"),
                 "HSC_BRIDGE_SERVERS_FILE": str(valid_registry),
             }
@@ -66,6 +75,45 @@ class TestConfigContracts(unittest.TestCase):
             # Exceeding 64 characters
             with self.assertRaises(ConfigurationError):
                 load_config({**base_env, "HSC_BRIDGE_NODE_KEY": "x" * 65})
+
+    def test_invalid_auth_api_url_and_credential_fails(self) -> None:
+        """Rejects non-HTTPS schemes, embedded credentials, query strings, fragments, and blank credentials."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            valid_registry = Path(tmp_dir) / "servers.json"
+            valid_registry.write_text(
+                json.dumps({
+                    "schemaVersion": 1,
+                    "servers": [{"serverKey": "srv-1"}],
+                }),
+                encoding="utf-8",
+            )
+            base_env = {
+                "HSC_BRIDGE_NODE_KEY": "node-01",
+                "HSC_BRIDGE_STATE_DB": str(Path(tmp_dir) / "state.db"),
+                "HSC_BRIDGE_SERVERS_FILE": str(valid_registry),
+                "HSC_AUTH_API_BASE_URL": "https://auth.example.com",
+                "HSC_BRIDGE_CREDENTIAL": "secret_token",
+            }
+
+            # Non-HTTPS URL
+            with self.assertRaises(ConfigurationError):
+                load_config({**base_env, "HSC_AUTH_API_BASE_URL": "http://auth.example.com"})
+
+            # Embedded username/password
+            with self.assertRaises(ConfigurationError):
+                load_config({**base_env, "HSC_AUTH_API_BASE_URL": "https://user:pass@auth.example.com"})
+
+            # Query params
+            with self.assertRaises(ConfigurationError):
+                load_config({**base_env, "HSC_AUTH_API_BASE_URL": "https://auth.example.com?query=1"})
+
+            # Fragment
+            with self.assertRaises(ConfigurationError):
+                load_config({**base_env, "HSC_AUTH_API_BASE_URL": "https://auth.example.com#section"})
+
+            # Blank credential
+            with self.assertRaises(ConfigurationError):
+                load_config({**base_env, "HSC_BRIDGE_CREDENTIAL": "   "})
 
     def test_server_registry_strict_schema_validation(self) -> None:
         """Registry rejects unsupported schemaVersion, duplicate keys, blank keys, and unknown fields."""
