@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Test and coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Packaging and distribution
+dist/
+build/
+*.egg-info/
+
+# Local SQLite databases and journal files
+*.db
+*.db-wal
+*.db-shm
