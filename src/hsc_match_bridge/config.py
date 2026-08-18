@@ -7,6 +7,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import urlsplit
 
 
 class ConfigurationError(Exception):
@@ -25,12 +26,23 @@ class BridgeConfig:
     """Immutable bridge node configuration."""
 
     bridge_node_key: str
+    auth_api_base_url: str
+    bridge_credential: str
     state_db_path: Path
     servers: tuple[ServerResourceConfig, ...]
 
     @property
     def server_keys(self) -> tuple[str, ...]:
         return tuple(s.server_key for s in self.servers)
+
+    def __repr__(self) -> str:
+        return (
+            f"BridgeConfig(bridge_node_key={self.bridge_node_key!r}, "
+            f"auth_api_base_url={self.auth_api_base_url!r}, "
+            f"bridge_credential='***', "
+            f"state_db_path={self.state_db_path!r}, "
+            f"servers={self.servers!r})"
+        )
 
 
 def parse_server_registry(file_path: Path) -> tuple[ServerResourceConfig, ...]:
@@ -122,6 +134,43 @@ def parse_server_registry(file_path: Path) -> tuple[ServerResourceConfig, ...]:
     return tuple(validated_servers)
 
 
+def validate_auth_api_base_url(raw_url: str) -> str:
+    """Validate and normalize Auth API base URL (HTTPS only, no credentials/query/fragment)."""
+    if not isinstance(raw_url, str) or not raw_url.strip():
+        raise ConfigurationError("HSC_AUTH_API_BASE_URL cannot be empty.")
+
+    trimmed = raw_url.strip()
+    parsed = urlsplit(trimmed)
+
+    if parsed.scheme.lower() != "https":
+        raise ConfigurationError(
+            f"HSC_AUTH_API_BASE_URL must use HTTPS scheme, got: '{parsed.scheme}'."
+        )
+
+    if not parsed.netloc:
+        raise ConfigurationError(
+            f"HSC_AUTH_API_BASE_URL missing valid host: '{trimmed}'."
+        )
+
+    if "@" in parsed.netloc:
+        raise ConfigurationError(
+            "HSC_AUTH_API_BASE_URL must not contain embedded username or password."
+        )
+
+    if parsed.query:
+        raise ConfigurationError(
+            "HSC_AUTH_API_BASE_URL must not contain query parameters."
+        )
+
+    if parsed.fragment:
+        raise ConfigurationError(
+            "HSC_AUTH_API_BASE_URL must not contain URL fragments."
+        )
+
+    normalized_path = parsed.path.rstrip("/")
+    return f"https://{parsed.netloc}{normalized_path}"
+
+
 def load_config(env: Mapping[str, str] | None = None) -> BridgeConfig:
     """Load and validate bridge configuration from environment variables."""
     if env is None:
@@ -143,6 +192,19 @@ def load_config(env: Mapping[str, str] | None = None) -> BridgeConfig:
         raise ConfigurationError(
             f"HSC_BRIDGE_NODE_KEY exceeds maximum length of 64 characters: '{bridge_node_key}'"
         )
+
+    # HSC_AUTH_API_BASE_URL
+    if "HSC_AUTH_API_BASE_URL" not in env:
+        raise ConfigurationError("HSC_AUTH_API_BASE_URL environment variable is required.")
+    auth_api_base_url = validate_auth_api_base_url(env["HSC_AUTH_API_BASE_URL"])
+
+    # HSC_BRIDGE_CREDENTIAL
+    if "HSC_BRIDGE_CREDENTIAL" not in env:
+        raise ConfigurationError("HSC_BRIDGE_CREDENTIAL environment variable is required.")
+    raw_cred = env["HSC_BRIDGE_CREDENTIAL"]
+    if not isinstance(raw_cred, str) or not raw_cred.strip():
+        raise ConfigurationError("HSC_BRIDGE_CREDENTIAL cannot be empty or whitespace only.")
+    bridge_credential = raw_cred  # Preserve exactly without trimming
 
     # HSC_BRIDGE_STATE_DB
     if "HSC_BRIDGE_STATE_DB" not in env:
@@ -176,6 +238,8 @@ def load_config(env: Mapping[str, str] | None = None) -> BridgeConfig:
 
     return BridgeConfig(
         bridge_node_key=bridge_node_key,
+        auth_api_base_url=auth_api_base_url,
+        bridge_credential=bridge_credential,
         state_db_path=state_db_path,
         servers=servers,
     )
