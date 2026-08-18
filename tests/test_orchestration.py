@@ -149,7 +149,143 @@ class TestOrchestrationContracts(unittest.TestCase):
                 # G1 intake MUST NOT mark execution_started_at
                 self.assertIsNone(entry.execution_started_at)
 
+    @unittest.mock.patch("hsc_match_bridge.orchestration.wait_for_matchzy_prepared")
+    @unittest.mock.patch("hsc_match_bridge.orchestration.load_matchzy_match")
+    @unittest.mock.patch("hsc_match_bridge.orchestration.materialize_matchzy_config")
+    def test_prepare_received_happy_path(
+        self,
+        mock_materialize: unittest.mock.MagicMock,
+        mock_load_match: unittest.mock.MagicMock,
+        mock_wait_prepared: unittest.mock.MagicMock,
+    ) -> None:
+        """Newly received command marks APPLYING, executes local side-effects, verifies PREPARED, records SUCCEEDED and submits result."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "journal.db"
+            config = BridgeConfig(
+                bridge_node_key="node-01",
+                auth_api_base_url="https://auth.example.com",
+                bridge_credential="secret_token",
+                state_db_path=db_path,
+                rcon_executable=Path("/usr/local/bin/rcon"),
+                servers=(
+                    ServerResourceConfig(
+                        server_key="srv-east-1",
+                        csgo_root=Path("/opt/cs2/game/csgo"),
+                        rcon_config_path=Path("/etc/rcon/srv-east-1.yaml"),
+                    ),
+                ),
+            )
+
+            client = Mock(spec=MatchBridgeClient)
+            client.claim.return_value = _sample_claimed_command(server_key="srv-east-1", command_id="cmd-prep-1")
+            mock_materialize.return_value = "hsc-match-bridge/1000001.json"
+            mock_wait_prepared.return_value = True
+
+            with CommandJournal(db_path) as journal:
+                from hsc_match_bridge.orchestration import PrepareOutcome, prepare_one_cycle
+
+                result = prepare_one_cycle(config, client, journal)
+                self.assertEqual(result.outcome, PrepareOutcome.PREPARED)
+                self.assertEqual(result.command_id, "cmd-prep-1")
+                self.assertEqual(result.result_code, "PREPARED")
+
+                # Journal entry state must be terminal SUCCEEDED with PREPARED result_code
+                entry = journal.get("cmd-prep-1")
+                self.assertIsNotNone(entry)
+                assert entry is not None
+                self.assertEqual(entry.state, CommandState.SUCCEEDED)
+                self.assertEqual(entry.result_code, "PREPARED")
+                self.assertIsNotNone(entry.execution_started_at)
+                self.assertIsNotNone(entry.completed_at)
+
+                # Central client submitted exactly SUCCEEDED / PREPARED with current lease token
+                client.submit_result.assert_called_once_with(
+                    command_id="cmd-prep-1",
+                    lease_token="lease_tok_xyz",
+                    outcome="SUCCEEDED",
+                    result_code="PREPARED",
+                    result=None,
+                )
+
+    @unittest.mock.patch("hsc_match_bridge.orchestration.inspect_matchzy_prepared")
+    @unittest.mock.patch("hsc_match_bridge.orchestration.load_matchzy_match")
+    @unittest.mock.patch("hsc_match_bridge.orchestration.materialize_matchzy_config")
+    def test_prepare_applying_replay_uncertainty(
+        self,
+        mock_materialize: unittest.mock.MagicMock,
+        mock_load_match: unittest.mock.MagicMock,
+        mock_inspect_prepared: unittest.mock.MagicMock,
+    ) -> None:
+        """Existing APPLYING command never re-actuates; reconciles to SUCCEEDED if PREPARED or remains UNCERTAIN."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "journal.db"
+            config = BridgeConfig(
+                bridge_node_key="node-01",
+                auth_api_base_url="https://auth.example.com",
+                bridge_credential="secret_token",
+                state_db_path=db_path,
+                rcon_executable=Path("/usr/local/bin/rcon"),
+                servers=(
+                    ServerResourceConfig(
+                        server_key="srv-east-1",
+                        csgo_root=Path("/opt/cs2/game/csgo"),
+                        rcon_config_path=Path("/etc/rcon/srv-east-1.yaml"),
+                    ),
+                ),
+            )
+
+            client = Mock(spec=MatchBridgeClient)
+            claimed = _sample_claimed_command(server_key="srv-east-1", command_id="cmd-applying-1")
+            client.claim.return_value = claimed
+
+            with CommandJournal(db_path) as journal:
+                from hsc_match_bridge.models import CommandIdentity
+                from hsc_match_bridge.orchestration import PrepareOutcome, prepare_one_cycle
+
+                # Seed command in APPLYING state (simulating prior crash after mark_applying)
+                identity = CommandIdentity(
+                    command_id=claimed.command_id,
+                    assignment_id=claimed.assignment_id,
+                    server_key=claimed.target.server_key,
+                    runtime_match_id=claimed.match_spec.runtime_match_id,
+                    command_type=CommandType.PREPARE_MATCH,
+                )
+                journal.observe(identity)
+                journal.mark_applying(claimed.command_id)
+
+                # Case A: inspect_matchzy_prepared returns False -> UNCERTAIN, no re-actuation, remains APPLYING
+                mock_inspect_prepared.return_value = False
+                result_uncertain = prepare_one_cycle(config, client, journal)
+
+                self.assertEqual(result_uncertain.outcome, PrepareOutcome.UNCERTAIN)
+                mock_materialize.assert_not_called()
+                mock_load_match.assert_not_called()
+                client.submit_result.assert_not_called()
+                entry_applying = journal.get("cmd-applying-1")
+                assert entry_applying is not None
+                self.assertEqual(entry_applying.state, CommandState.APPLYING)
+
+                # Case B: inspect_matchzy_prepared returns True -> transitions to SUCCEEDED and submits PREPARED
+                mock_inspect_prepared.return_value = True
+                result_prepared = prepare_one_cycle(config, client, journal)
+
+                self.assertEqual(result_prepared.outcome, PrepareOutcome.PREPARED)
+                mock_materialize.assert_not_called()
+                mock_load_match.assert_not_called()
+                entry_succeeded = journal.get("cmd-applying-1")
+                assert entry_succeeded is not None
+                self.assertEqual(entry_succeeded.state, CommandState.SUCCEEDED)
+                self.assertEqual(entry_succeeded.result_code, "PREPARED")
+                client.submit_result.assert_called_once_with(
+                    command_id="cmd-applying-1",
+                    lease_token="lease_tok_xyz",
+                    outcome="SUCCEEDED",
+                    result_code="PREPARED",
+                    result=None,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

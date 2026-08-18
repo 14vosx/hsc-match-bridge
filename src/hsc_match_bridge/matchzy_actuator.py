@@ -17,6 +17,10 @@ RCON_SUBPROCESS_TIMEOUT_SECONDS = 10.0
 class MatchZyActuationError(Exception):
     """Raised when local filesystem or RCON actuation fails."""
 
+    def __init__(self, message: str, *, execution_uncertain: bool = False) -> None:
+        super().__init__(message)
+        self.execution_uncertain = execution_uncertain
+
 
 def materialize_matchzy_config(csgo_root: Path, match_spec: MatchSpecV1) -> str:
     """Atomically materialize deterministic MatchZy JSON configuration under csgo_root.
@@ -40,7 +44,8 @@ def materialize_matchzy_config(csgo_root: Path, match_spec: MatchSpecV1) -> str:
             existing_content = target_file.read_bytes()
         except Exception as e:
             raise MatchZyActuationError(
-                f"Failed to read existing config at '{target_file}': {e}"
+                f"Failed to read existing config at '{target_file}': {e}",
+                execution_uncertain=False,
             ) from e
 
         if existing_content == serialized_content:
@@ -49,7 +54,8 @@ def materialize_matchzy_config(csgo_root: Path, match_spec: MatchSpecV1) -> str:
 
         # Divergent content for same runtimeMatchId: fail closed
         raise MatchZyActuationError(
-            f"Config file already exists at '{target_file}' with divergent content for runtimeMatchId {match_spec.runtime_match_id}."
+            f"Config file already exists at '{target_file}' with divergent content for runtimeMatchId {match_spec.runtime_match_id}.",
+            execution_uncertain=False,
         )
 
     # Atomic write to target directory
@@ -57,7 +63,8 @@ def materialize_matchzy_config(csgo_root: Path, match_spec: MatchSpecV1) -> str:
         target_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         raise MatchZyActuationError(
-            f"Failed to create target directory '{target_dir}': {e}"
+            f"Failed to create target directory '{target_dir}': {e}",
+            execution_uncertain=False,
         ) from e
 
     fd, temp_path_str = tempfile.mkstemp(
@@ -83,29 +90,27 @@ def materialize_matchzy_config(csgo_root: Path, match_spec: MatchSpecV1) -> str:
             except Exception:
                 pass
         raise MatchZyActuationError(
-            f"Failed to atomically write config to '{target_file}': {e}"
+            f"Failed to atomically write config to '{target_file}': {e}",
+            execution_uncertain=False,
         ) from e
 
     return relative_subpath
 
 
-def load_matchzy_match(
+def execute_rcon_command(
     rcon_executable: Path,
     rcon_config_path: Path,
-    relative_config_path: str,
-) -> None:
-    """Invoke matchzy_loadmatch via external gorcon/rcon-cli executable.
-
-    Note: Successful RCON invocation does NOT verify PREPARED state.
-    """
+    command: str,
+) -> str:
+    """Execute an RCON command via external gorcon/rcon-cli and return stdout."""
     if not isinstance(rcon_executable, Path):
         raise TypeError(f"Expected Path for rcon_executable, got {type(rcon_executable).__name__}")
     if not isinstance(rcon_config_path, Path):
         raise TypeError(f"Expected Path for rcon_config_path, got {type(rcon_config_path).__name__}")
-    if not isinstance(relative_config_path, str) or not relative_config_path.strip():
-        raise ValueError("relative_config_path must be a non-empty string.")
+    if not isinstance(command, str) or not command.strip():
+        raise ValueError("command must be a non-empty string.")
 
-    cmd_str = f"matchzy_loadmatch {relative_config_path.strip()}"
+    cmd_str = command.strip()
     argv = [
         str(rcon_executable),
         "-c",
@@ -126,10 +131,14 @@ def load_matchzy_match(
         )
     except subprocess.TimeoutExpired as e:
         raise MatchZyActuationError(
-            f"RCON execution timed out after {RCON_SUBPROCESS_TIMEOUT_SECONDS}s."
+            f"RCON execution timed out after {RCON_SUBPROCESS_TIMEOUT_SECONDS}s.",
+            execution_uncertain=True,
         ) from e
     except Exception as e:
-        raise MatchZyActuationError(f"Failed to launch RCON executable: {e}") from e
+        raise MatchZyActuationError(
+            f"Failed to launch RCON executable: {e}",
+            execution_uncertain=False,
+        ) from e
 
     if result.returncode != 0:
         stdout_diag = result.stdout.strip()
@@ -138,5 +147,28 @@ def load_matchzy_match(
         if stderr_diag:
             diag = f"{diag}; stderr: {stderr_diag}" if diag else f"stderr: {stderr_diag}"
         raise MatchZyActuationError(
-            f"RCON command exited with non-zero status ({result.returncode}). {diag}".strip()
+            f"RCON command exited with non-zero status ({result.returncode}). {diag}".strip(),
+            execution_uncertain=True,
         )
+
+    return result.stdout
+
+
+def load_matchzy_match(
+    rcon_executable: Path,
+    rcon_config_path: Path,
+    relative_config_path: str,
+) -> None:
+    """Invoke matchzy_loadmatch via external gorcon/rcon-cli executable.
+
+    Note: Successful RCON invocation does NOT verify PREPARED state.
+    """
+    if not isinstance(relative_config_path, str) or not relative_config_path.strip():
+        raise ValueError("relative_config_path must be a non-empty string.")
+
+    execute_rcon_command(
+        rcon_executable=rcon_executable,
+        rcon_config_path=rcon_config_path,
+        command=f"matchzy_loadmatch {relative_config_path.strip()}",
+    )
+

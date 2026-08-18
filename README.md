@@ -56,6 +56,23 @@ Slice G2-B provides local filesystem config materialization and Source RCON actu
 
 ---
 
+## Slice G2-C Scope: Prepare Orchestration & Strong PREPARED Verifier
+
+Slice G2-C completes the durable PREPARE_MATCH execution path:
+- **One-Cycle Prepare Orchestration (`prepare_one_cycle`)**: Claims command from Central Auth API, verifies local server ownership, observes into SQLite journal, transitions `RECEIVED` → `APPLYING` *prior* to any local side effect, executes G2-B materialization and RCON load, verifies local state, records terminal journal state, and submits Central terminal result using current claim `leaseToken`.
+- **Strong PREPARED Verifier**:
+  - `MatchZyPlayerNames/Match_<runtimeMatchId>.ini` artifact exists and contains *exactly* the 10 SteamID64 values from the authoritative Match Spec roster.
+  - CS2 RCON `status` query reports matching `map` key.
+  - CS2 RCON `status` hostname contains both loaded MatchZy team names (`Team A` and `Team B`).
+  - Short bounded verification wait (~12s) prevents premature failure while MatchZy loads.
+- **Execution Uncertainty & Reconciliation**:
+  - `APPLYING` state commands upon restart or reclaim are *never* blindly re-actuated.
+  - If existing `APPLYING` state can be strongly proven `PREPARED` via the verifier, it reconciles to `SUCCEEDED` / `PREPARED`. Otherwise it remains `APPLYING` without retry.
+  - Terminal `SUCCEEDED` / `PREPARED` and `FAILED` commands re-submit their durable result code using the current claim's `leaseToken` without re-running actuation.
+- **G2-C Boundary**: One-cycle execution only. Does *not* implement long-running daemon loops, systemd units, JOINABLE status, live IN_GAME/FINISHED match tracking, or server release/reset.
+
+---
+
 ## Reliability & Execution Uncertainty Principle
 
 ### Exactly-Once Limitation
