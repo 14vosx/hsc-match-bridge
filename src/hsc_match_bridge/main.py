@@ -1,0 +1,73 @@
+"""Command-line entry point for HSC Match Bridge."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from typing import Sequence
+
+from hsc_match_bridge.config import ConfigurationError, load_config
+from hsc_match_bridge.journal import CommandJournal
+from hsc_match_bridge.models import CommandValidationError, JournalError
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build command-line argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="hsc-match-bridge",
+        description="HSC Match Bridge control-plane adapter foundation.",
+    )
+    subparsers = parser.add_subparsers(dest="subcommand", required=True)
+
+    # check subcommand
+    subparsers.add_parser(
+        "check",
+        help="Validate environment configuration, server registry, and SQLite journal.",
+    )
+
+    return parser
+
+
+def run_check() -> int:
+    """Execute the check subcommand to validate configuration and journal."""
+    config = load_config()
+
+    # Check state database parent directory usability
+    parent_dir = config.state_db_path.parent
+    if not parent_dir.exists() or not parent_dir.is_dir():
+        raise ConfigurationError(
+            f"State database parent directory does not exist or is not a directory: {parent_dir}"
+        )
+
+    # Initialize / verify SQLite journal
+    with CommandJournal(config.state_db_path) as journal:
+        # Schema verification is performed during journal initialization
+        pass
+
+    print(
+        f"OK: HSC Match Bridge configuration and journal verified "
+        f"(node={config.bridge_node_key}, servers={len(config.servers)})."
+    )
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Main CLI entrypoint."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        if args.subcommand == "check":
+            return run_check()
+        parser.print_help(sys.stderr)
+        return 1
+    except (ConfigurationError, JournalError, CommandValidationError) as e:
+        print(f"Configuration/Journal error: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Unexpected error: {e}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
