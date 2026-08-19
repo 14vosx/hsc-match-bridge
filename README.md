@@ -62,8 +62,8 @@ Slice G2-C completes the durable PREPARE_MATCH execution path:
 - **One-Cycle Prepare Orchestration (`prepare_one_cycle`)**: Claims command from Central Auth API, verifies local server ownership, observes into SQLite journal, transitions `RECEIVED` → `APPLYING` *prior* to any local side effect, executes G2-B materialization and RCON load, verifies local state, records terminal journal state, and submits Central terminal result using current claim `leaseToken`.
 - **Strong PREPARED Verifier**:
   - `MatchZyPlayerNames/Match_<runtimeMatchId>.ini` artifact exists and contains *exactly* the 10 SteamID64 values from the authoritative Match Spec roster.
-  - CS2 RCON `status` query reports matching `map` key.
-  - CS2 RCON `status` hostname contains both loaded MatchZy team names (`Team A` and `Team B`).
+  - CS2 RCON `status_json` query reports matching `server.map` key.
+  - CS2 RCON `get5_status` query reports matching `matchid`, exact `loaded_config_file`, non-"none" `gamestate`, and `team1.name == "Team A"` / `team2.name == "Team B"`.
   - Short bounded verification wait (~12s) prevents premature failure while MatchZy loads.
 - **Execution Uncertainty & Reconciliation**:
   - `APPLYING` state commands upon restart or reclaim are *never* blindly re-actuated.

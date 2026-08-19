@@ -2,42 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from pathlib import Path
-from typing import NamedTuple
 
 from hsc_match_bridge.matchzy_actuator import execute_rcon_command
 from hsc_match_bridge.protocol import MatchSpecV1
 
 STEAMID64_KEY_RE = re.compile(r'"(\d{17})"')
-STATUS_HOSTNAME_RE = re.compile(r"^\s*hostname\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
-STATUS_MAP_RE = re.compile(r"^\s*map\s*:\s*(\S+)", re.IGNORECASE | re.MULTILINE)
 
 VERIFICATION_TIMEOUT_SECONDS = 12.0
 VERIFICATION_POLL_INTERVAL_SECONDS = 0.5
-
-
-class StatusSnapshot(NamedTuple):
-    hostname: str
-    map_name: str
-
-
-def parse_cs2_status(status_output: str) -> StatusSnapshot | None:
-    """Extract hostname and map from CS2 status command output."""
-    if not isinstance(status_output, str):
-        return None
-
-    hostname_match = STATUS_HOSTNAME_RE.search(status_output)
-    map_match = STATUS_MAP_RE.search(status_output)
-
-    if not hostname_match or not map_match:
-        return None
-
-    return StatusSnapshot(
-        hostname=hostname_match.group(1).strip(),
-        map_name=map_match.group(1).strip(),
-    )
 
 
 def parse_matchzy_player_artifact(artifact_path: Path) -> set[str] | None:
@@ -75,27 +51,67 @@ def inspect_matchzy_prepared(
     if len(expected_steam_ids) != 10 or artifact_steam_ids != expected_steam_ids:
         return False
 
-    # 2. Query RCON status
+    # 2. Query and validate status_json (server.map)
     try:
-        status_output = execute_rcon_command(
+        status_json_raw = execute_rcon_command(
             rcon_executable=rcon_executable,
             rcon_config_path=rcon_config_path,
-            command="status",
+            command="status_json",
         )
     except Exception:
         return False
 
-    # 3. Parse status
-    status = parse_cs2_status(status_output)
-    if status is None:
+    try:
+        status_data = json.loads(status_json_raw)
+    except Exception:
         return False
 
-    # 4. Exact map check
-    if status.map_name != match_spec.map.key:
+    if not isinstance(status_data, dict):
         return False
 
-    # 5. Team hostname evidence check (Team A and Team B from MatchZy config)
-    if "Team A" not in status.hostname or "Team B" not in status.hostname:
+    server_obj = status_data.get("server")
+    if not isinstance(server_obj, dict):
+        return False
+
+    current_map = server_obj.get("map")
+    if not isinstance(current_map, str) or current_map != match_spec.map.key:
+        return False
+
+    # 3. Query and validate get5_status
+    try:
+        get5_status_raw = execute_rcon_command(
+            rcon_executable=rcon_executable,
+            rcon_config_path=rcon_config_path,
+            command="get5_status",
+        )
+    except Exception:
+        return False
+
+    try:
+        get5_data = json.loads(get5_status_raw)
+    except Exception:
+        return False
+
+    if not isinstance(get5_data, dict):
+        return False
+
+    if get5_data.get("matchid") != match_spec.runtime_match_id:
+        return False
+
+    expected_config_file = f"hsc-match-bridge/{match_spec.runtime_match_id}.json"
+    if get5_data.get("loaded_config_file") != expected_config_file:
+        return False
+
+    gamestate = get5_data.get("gamestate")
+    if not isinstance(gamestate, str) or not gamestate or gamestate == "none":
+        return False
+
+    team1 = get5_data.get("team1")
+    if not isinstance(team1, dict) or team1.get("name") != "Team A":
+        return False
+
+    team2 = get5_data.get("team2")
+    if not isinstance(team2, dict) or team2.get("name") != "Team B":
         return False
 
     return True
