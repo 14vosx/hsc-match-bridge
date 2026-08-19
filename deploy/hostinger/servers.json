@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "servers": [
+    {
+      "serverKey": "hsc-mix-01",
+      "csgoRoot": "/home/amp/.ampdata/instances/MixHAXIXE01/counter-strike2/730/game/csgo",
+      "rconConfigPath": "/etc/hsc-match-bridge/rcon/mix01.yaml"
+    }
+  ]
+}
