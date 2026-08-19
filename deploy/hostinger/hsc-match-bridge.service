@@ -1,0 +1,23 @@
+[Unit]
+Description=HSC Match Bridge
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=amp
+Group=amp
+EnvironmentFile=/etc/hsc-match-bridge/bridge.env
+ExecStart=/usr/local/bin/hsc-match-bridge run
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/hsc-match-bridge /home/amp/.ampdata/instances/MixHAXIXE01/counter-strike2/730/game/csgo/hsc-match-bridge
+PrivateTmp=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

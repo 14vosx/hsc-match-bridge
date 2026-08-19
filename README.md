@@ -166,9 +166,17 @@ OK: HSC Match Bridge configuration and journal verified (node=node-local-dev-01,
 
 ---
 
-## Future Deployment Example (Informational)
+## Production Deployment
 
-In future production deployments (systemd unit to be defined in later slices), the database and configuration paths may follow standard conventions such as:
-- State database: `/var/lib/hsc-match-bridge/journal.db` *(future example)*
-- Server registry: `/etc/hsc-match-bridge/servers.json` *(future example)*
+The supported production target for HSC Match Bridge is **Debian GNU/Linux 13 (Hostinger VPS)** managed under `systemd`.
+
+- **Process Identity**: Runs under `User=amp` and `Group=amp` for direct CS2 instance filesystem access.
+- **Code & Runtime**: `/opt/hsc-match-bridge` (isolated Python 3.13 venv at `/opt/hsc-match-bridge/.venv`).
+- **Configuration Root**: `/etc/hsc-match-bridge` (`bridge.env`, `servers.json`, `rcon/mix01.yaml`).
+- **Durable State Database**: `/var/lib/hsc-match-bridge/bridge.sqlite3`.
+- **Systemd Unit**: `/etc/systemd/system/hsc-match-bridge.service` (`deploy/hostinger/hsc-match-bridge.service`).
+- **Logs**: Captured via `journald` (`journalctl -u hsc-match-bridge.service`).
+
+For full end-to-end installation, permissions policy, pre-start checks, and rollback procedures, see the operational runbook:
+👉 [Hostinger Deployment Runbook](docs/deployment-hostinger.md)
 
