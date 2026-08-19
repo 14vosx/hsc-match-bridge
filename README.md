@@ -34,6 +34,45 @@ Slice G1 establishes the reliable protocol foundation:
 
 ---
 
+## Slice G2-A Scope: MatchZy Config Renderer
+
+Slice G2-A provides pure, deterministic Match Spec v1 → MatchZy JSON translation:
+- Pure translation from `MatchSpecV1` to MatchZy-compatible configuration dictionary and deterministic JSON.
+- Maps `runtimeMatchId` to `matchid`, `teams.team_a` to `team1`, `teams.team_b` to `team2`, and `map.key` to single `maplist` entry.
+- Standardizes 5v5 BO1 format with knife round (`map_sides: ["knife"]`), `skip_veto: true`, and `min_players_to_ready: 5`.
+- **G2-A Boundary**: Pure renderer only. Does *not* write MatchZy files, execute RCON commands, or prepare a live server.
+
+---
+
+## Slice G2-B Scope: Local MatchZy Actuator & Server Registry V2
+
+Slice G2-B provides local filesystem config materialization and Source RCON actuation:
+- **Registry Schema V2**: Requires `serverKey`, absolute `csgoRoot`, and absolute `rconConfigPath` per managed server.
+- **RCON Transport**: Uses external `gorcon/rcon-cli` binary configured via `HSC_RCON_EXECUTABLE`. No Python RCON dependency is used.
+- **Atomic Config Materialization**: Materializes serialized JSON under `<csgoRoot>/hsc-match-bridge/<runtimeMatchId>.json` atomically (atomic tempfile replace, idempotent matching content, fail-closed on divergent content).
+- **RCON MatchZy Execution**: Invokes `matchzy_loadmatch hsc-match-bridge/<runtimeMatchId>.json` via external RCON CLI.
+- **Security Boundary**: RCON passwords and connection parameters are kept exclusively in external YAML config files referenced by `rconConfigPath`. Secrets are never stored in the registry, passed via argv, logged, or managed in the Bridge.
+- **G2-B Boundary**: Successful RCON transport execution does *not* establish `PREPARED`. PREPARED verification and journal lifecycle transitions belong to G2-C.
+
+---
+
+## Slice G2-C Scope: Prepare Orchestration & Strong PREPARED Verifier
+
+Slice G2-C completes the durable PREPARE_MATCH execution path:
+- **One-Cycle Prepare Orchestration (`prepare_one_cycle`)**: Claims command from Central Auth API, verifies local server ownership, observes into SQLite journal, transitions `RECEIVED` → `APPLYING` *prior* to any local side effect, executes G2-B materialization and RCON load, verifies local state, records terminal journal state, and submits Central terminal result using current claim `leaseToken`.
+- **Strong PREPARED Verifier**:
+  - `MatchZyPlayerNames/Match_<runtimeMatchId>.ini` artifact exists and contains *exactly* the 10 SteamID64 values from the authoritative Match Spec roster.
+  - CS2 RCON `status_json` query reports matching `server.map` key.
+  - CS2 RCON `get5_status` query reports matching `matchid`, exact `loaded_config_file`, non-"none" `gamestate`, and `team1.name == "Team A"` / `team2.name == "Team B"`.
+  - Short bounded verification wait (~12s) prevents premature failure while MatchZy loads.
+- **Execution Uncertainty & Reconciliation**:
+  - `APPLYING` state commands upon restart or reclaim are *never* blindly re-actuated.
+  - If existing `APPLYING` state can be strongly proven `PREPARED` via the verifier, it reconciles to `SUCCEEDED` / `PREPARED`. Otherwise it remains `APPLYING` without retry.
+  - Terminal `SUCCEEDED` / `PREPARED` and `FAILED` commands re-submit their durable result code using the current claim's `leaseToken` without re-running actuation.
+- **G2-C Boundary**: One-cycle execution only. Does *not* implement long-running daemon loops, systemd units, JOINABLE status, live IN_GAME/FINISHED match tracking, or server release/reset.
+
+---
+
 ## Reliability & Execution Uncertainty Principle
 
 ### Exactly-Once Limitation
@@ -70,30 +109,33 @@ Future G2 reconciliation/adapter logic will decide how an uncertain execution is
 | `HSC_BRIDGE_CREDENTIAL` | Yes | Dedicated internal bridge credential secret (sent in `x-hsc-bridge-key`). |
 | `HSC_BRIDGE_STATE_DB` | Yes | Filesystem path to the local SQLite database file (e.g. `state/journal.db`). |
 | `HSC_BRIDGE_SERVERS_FILE` | Yes | Filesystem path to the local server registry JSON file. |
+| `HSC_RCON_EXECUTABLE` | Yes | Absolute filesystem path to the external `gorcon/rcon-cli` executable. |
 
-*(Note: MatchZy/RCON/AMP configurations belong to future Slice G2.)*
-
-### Local Server Registry Schema (`schemaVersion: 1`)
+### Local Server Registry Schema (`schemaVersion: 2`)
 
 The server registry defines the local server resources managed by this bridge node:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "servers": [
     {
-      "serverKey": "central-server-resource-01"
+      "serverKey": "central-server-resource-01",
+      "csgoRoot": "/opt/cs2-server1/game/csgo",
+      "rconConfigPath": "/etc/rcon/server1.yaml"
     },
     {
-      "serverKey": "central-server-resource-02"
+      "serverKey": "central-server-resource-02",
+      "csgoRoot": "/opt/cs2-server2/game/csgo",
+      "rconConfigPath": "/etc/rcon/server2.yaml"
     }
   ]
 }
 ```
 
 *Strict validation rules*:
-- Root must contain integer `schemaVersion: 1` and non-empty `servers` list.
-- Each server entry must contain strictly `serverKey` (string, max 64 chars, non-empty after trimming).
+- Root must contain integer `schemaVersion: 2` and non-empty `servers` list.
+- Each server entry must contain strictly `serverKey` (string, max 64 chars, non-empty), `csgoRoot` (absolute path string), and `rconConfigPath` (absolute path string).
 - Duplicate normalized `serverKey` entries and unknown fields are rejected.
 
 ---
@@ -109,6 +151,7 @@ export HSC_AUTH_API_BASE_URL="https://auth.example.com"
 export HSC_BRIDGE_CREDENTIAL="placeholder-secret-credential"
 export HSC_BRIDGE_STATE_DB="./state/journal.db"
 export HSC_BRIDGE_SERVERS_FILE="./config/servers.json"
+export HSC_RCON_EXECUTABLE="/usr/local/bin/rcon"
 
 # Run check command
 hsc-match-bridge check
@@ -128,3 +171,4 @@ OK: HSC Match Bridge configuration and journal verified (node=node-local-dev-01,
 In future production deployments (systemd unit to be defined in later slices), the database and configuration paths may follow standard conventions such as:
 - State database: `/var/lib/hsc-match-bridge/journal.db` *(future example)*
 - Server registry: `/etc/hsc-match-bridge/servers.json` *(future example)*
+
