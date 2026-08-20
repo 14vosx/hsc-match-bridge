@@ -9,7 +9,7 @@ from hsc_match_bridge.protocol import MatchSpecPlayer, MatchSpecV1
 
 
 def _render_players_map(players: tuple[MatchSpecPlayer, ...]) -> dict[str, str]:
-    return {player.steamid64: player.player_account_id for player in players}
+    return {player.steamid64: player.personaname for player in players}
 
 
 def render_matchzy_config(match_spec: MatchSpecV1) -> dict[str, Any]:

@@ -21,6 +21,7 @@ class MatchSpecPlayer:
 
     player_account_id: str
     steamid64: str
+    personaname: str
 
 
 @dataclass(frozen=True)
@@ -103,10 +104,21 @@ def _parse_roster_team(players_data: Any, team_name: str) -> tuple[MatchSpecPlay
                 f"Player entry {idx} in Team {team_name} has invalid 'steamid64': '{steamid64}'."
             )
 
+        personaname = p.get("personaname")
+        if (
+            not isinstance(personaname, str)
+            or not personaname.strip()
+            or personaname != personaname.strip()
+        ):
+            raise ProtocolError(
+                f"Player entry {idx} in Team {team_name} missing valid 'personaname'."
+            )
+
         parsed_players.append(
             MatchSpecPlayer(
                 player_account_id=player_id,
                 steamid64=steamid64,
+                personaname=personaname,
             )
         )
 
