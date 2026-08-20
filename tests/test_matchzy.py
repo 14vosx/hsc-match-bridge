@@ -25,18 +25,18 @@ def _sample_match_spec() -> MatchSpecV1:
         ),
         teams=MatchSpecTeams(
             team_a=(
-                MatchSpecPlayer(player_account_id="p-a1", steamid64="76561198000000001"),
-                MatchSpecPlayer(player_account_id="p-a2", steamid64="76561198000000002"),
-                MatchSpecPlayer(player_account_id="p-a3", steamid64="76561198000000003"),
-                MatchSpecPlayer(player_account_id="p-a4", steamid64="76561198000000004"),
-                MatchSpecPlayer(player_account_id="p-a5", steamid64="76561198000000005"),
+                MatchSpecPlayer(player_account_id="p-a1", steamid64="76561198000000001", personaname="Player A1"),
+                MatchSpecPlayer(player_account_id="p-a2", steamid64="76561198000000002", personaname="Player A2"),
+                MatchSpecPlayer(player_account_id="p-a3", steamid64="76561198000000003", personaname="Player A3"),
+                MatchSpecPlayer(player_account_id="p-a4", steamid64="76561198000000004", personaname="Player A4"),
+                MatchSpecPlayer(player_account_id="p-a5", steamid64="76561198000000005", personaname="Player A5"),
             ),
             team_b=(
-                MatchSpecPlayer(player_account_id="p-b1", steamid64="76561198000000011"),
-                MatchSpecPlayer(player_account_id="p-b2", steamid64="76561198000000012"),
-                MatchSpecPlayer(player_account_id="p-b3", steamid64="76561198000000013"),
-                MatchSpecPlayer(player_account_id="p-b4", steamid64="76561198000000014"),
-                MatchSpecPlayer(player_account_id="p-b5", steamid64="76561198000000015"),
+                MatchSpecPlayer(player_account_id="p-b1", steamid64="76561198000000011", personaname="Player B1"),
+                MatchSpecPlayer(player_account_id="p-b2", steamid64="76561198000000012", personaname="Player B2"),
+                MatchSpecPlayer(player_account_id="p-b3", steamid64="76561198000000013", personaname="Player B3"),
+                MatchSpecPlayer(player_account_id="p-b4", steamid64="76561198000000014", personaname="Player B4"),
+                MatchSpecPlayer(player_account_id="p-b5", steamid64="76561198000000015", personaname="Player B5"),
             ),
         ),
     )
@@ -63,29 +63,29 @@ class TestMatchZyRendererContracts(unittest.TestCase):
                 "id": "A",
                 "name": "Team A",
                 "players": {
-                    "76561198000000001": "p-a1",
-                    "76561198000000002": "p-a2",
-                    "76561198000000003": "p-a3",
-                    "76561198000000004": "p-a4",
-                    "76561198000000005": "p-a5",
+                    "76561198000000001": "Player A1",
+                    "76561198000000002": "Player A2",
+                    "76561198000000003": "Player A3",
+                    "76561198000000004": "Player A4",
+                    "76561198000000005": "Player A5",
                 },
             },
             "team2": {
                 "id": "B",
                 "name": "Team B",
                 "players": {
-                    "76561198000000011": "p-b1",
-                    "76561198000000012": "p-b2",
-                    "76561198000000013": "p-b3",
-                    "76561198000000014": "p-b4",
-                    "76561198000000015": "p-b5",
+                    "76561198000000011": "Player B1",
+                    "76561198000000012": "Player B2",
+                    "76561198000000013": "Player B3",
+                    "76561198000000014": "Player B4",
+                    "76561198000000015": "Player B5",
                 },
             },
         }
         self.assertEqual(config, expected)
 
     def test_team_and_player_mappings(self) -> None:
-        """Team A maps to team1 and Team B maps to team2 with exact SteamID64 -> playerAccountId mappings."""
+        """Team A maps to team1 and Team B maps to team2 with exact SteamID64 -> personaname mappings."""
         spec = _sample_match_spec()
         config = render_matchzy_config(spec)
 
@@ -93,15 +93,19 @@ class TestMatchZyRendererContracts(unittest.TestCase):
         self.assertEqual(config["team1"]["name"], "Team A")
         self.assertEqual(
             config["team1"]["players"],
-            {p.steamid64: p.player_account_id for p in spec.teams.team_a},
+            {p.steamid64: p.personaname for p in spec.teams.team_a},
         )
 
         self.assertEqual(config["team2"]["id"], "B")
         self.assertEqual(config["team2"]["name"], "Team B")
         self.assertEqual(
             config["team2"]["players"],
-            {p.steamid64: p.player_account_id for p in spec.teams.team_b},
+            {p.steamid64: p.personaname for p in spec.teams.team_b},
         )
+
+        # Explicitly protect against regression where playerAccountId was mapped instead of personaname
+        for p in spec.teams.team_a:
+            self.assertNotIn(p.player_account_id, config["team1"]["players"].values())
 
     def test_runtime_match_id_and_map_propagation(self) -> None:
         """runtimeMatchId and selected map key are propagated exactly without transformation."""

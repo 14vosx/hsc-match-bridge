@@ -31,11 +31,19 @@ def _sample_match_spec(runtime_match_id: int = 1000005, map_key: str = "de_mirag
         ),
         teams=MatchSpecTeams(
             team_a=tuple(
-                MatchSpecPlayer(player_account_id=f"p-a{i}", steamid64=f"7656119800000000{i}")
+                MatchSpecPlayer(
+                    player_account_id=f"p-a{i}",
+                    steamid64=f"7656119800000000{i}",
+                    personaname=f"Player A{i}",
+                )
                 for i in range(1, 6)
             ),
             team_b=tuple(
-                MatchSpecPlayer(player_account_id=f"p-b{i}", steamid64=f"7656119800000001{i}")
+                MatchSpecPlayer(
+                    player_account_id=f"p-b{i}",
+                    steamid64=f"7656119800000001{i}",
+                    personaname=f"Player B{i}",
+                )
                 for i in range(1, 6)
             ),
         ),

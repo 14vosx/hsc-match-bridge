@@ -32,11 +32,19 @@ def _valid_claim_payload() -> dict:
                 },
                 "teams": {
                     "A": [
-                        {"playerAccountId": f"p-a{i}", "steamid64": f"7656119800000000{i}"}
+                        {
+                            "playerAccountId": f"p-a{i}",
+                            "steamid64": f"7656119800000000{i}",
+                            "personaname": f"Player A{i}",
+                        }
                         for i in range(1, 6)
                     ],
                     "B": [
-                        {"playerAccountId": f"p-b{i}", "steamid64": f"7656119800000001{i}"}
+                        {
+                            "playerAccountId": f"p-b{i}",
+                            "steamid64": f"7656119800000001{i}",
+                            "personaname": f"Player B{i}",
+                        }
                         for i in range(1, 6)
                     ],
                 },
@@ -65,6 +73,7 @@ class TestProtocolContracts(unittest.TestCase):
         self.assertEqual(claimed.match_spec.map.key, "de_mirage")
         self.assertEqual(len(claimed.match_spec.teams.team_a), 5)
         self.assertEqual(len(claimed.match_spec.teams.team_b), 5)
+        self.assertEqual(claimed.match_spec.teams.team_a[0].personaname, "Player A1")
 
     def test_parse_empty_claim_returns_none(self) -> None:
         """A claim response with command=null returns None."""
@@ -72,7 +81,7 @@ class TestProtocolContracts(unittest.TestCase):
         self.assertIsNone(parse_claimed_command_payload(payload))
 
     def test_parse_rejects_malformed_protocol_and_rosters(self) -> None:
-        """Parser rejects unsupported versions, invalid command types, invalid runtimeMatchId, and corrupt 5v5 rosters."""
+        """Parser rejects unsupported versions, invalid command types, invalid runtimeMatchId, corrupt 5v5 rosters, missing personaname."""
         base = _valid_claim_payload()
 
         # 1. Unsupported protocolVersion
@@ -105,9 +114,21 @@ class TestProtocolContracts(unittest.TestCase):
         duplicate_steam["command"]["matchSpec"]["teams"]["B"][0] = {
             "playerAccountId": "p-b1-alt",
             "steamid64": duplicate_steam["command"]["matchSpec"]["teams"]["A"][0]["steamid64"],
+            "personaname": "Player B1 Alt",
         }
         with self.assertRaises(ProtocolError):
             parse_claimed_command_payload(duplicate_steam)
+
+        # 6. Missing or invalid personaname
+        missing_personaname = _valid_claim_payload()
+        del missing_personaname["command"]["matchSpec"]["teams"]["A"][0]["personaname"]
+        with self.assertRaises(ProtocolError):
+            parse_claimed_command_payload(missing_personaname)
+
+        empty_personaname = _valid_claim_payload()
+        empty_personaname["command"]["matchSpec"]["teams"]["A"][0]["personaname"] = "   "
+        with self.assertRaises(ProtocolError):
+            parse_claimed_command_payload(empty_personaname)
 
         # Opaque values with surrounding whitespace are rejected, never repaired.
         padded_opaque_value = _valid_claim_payload()

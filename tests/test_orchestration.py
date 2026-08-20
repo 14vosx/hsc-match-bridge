@@ -42,11 +42,19 @@ def _sample_claimed_command(server_key: str = "srv-east-1", command_id: str = "c
             ),
             teams=MatchSpecTeams(
                 team_a=tuple(
-                    MatchSpecPlayer(player_account_id=f"p-a{i}", steamid64=f"7656119800000000{i}")
+                    MatchSpecPlayer(
+                        player_account_id=f"p-a{i}",
+                        steamid64=f"7656119800000000{i}",
+                        personaname=f"Player A{i}",
+                    )
                     for i in range(1, 6)
                 ),
                 team_b=tuple(
-                    MatchSpecPlayer(player_account_id=f"p-b{i}", steamid64=f"7656119800000001{i}")
+                    MatchSpecPlayer(
+                        player_account_id=f"p-b{i}",
+                        steamid64=f"7656119800000001{i}",
+                        personaname=f"Player B{i}",
+                    )
                     for i in range(1, 6)
                 ),
             ),
